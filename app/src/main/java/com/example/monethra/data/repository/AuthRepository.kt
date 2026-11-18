@@ -5,11 +5,13 @@ import com.example.monethra.data.datastore.UserPreferencesRepository
 import com.example.monethra.data.entity.UserEntity
 import com.example.monethra.utils.SecurityUtils
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -20,6 +22,7 @@ class AuthRepository(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     companion object {
+        const val SESSION_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
         const val DEMO_EMAIL = "monthra@andro.app"
         const val DEMO_PASSWORD = "1234"
         const val DEMO_NAME = "Monethra Demo"
@@ -187,12 +190,43 @@ class AuthRepository(
         }
     }
 
+    val lastActiveTimestamp: Flow<Long> get() = userPreferencesRepository.lastActiveTimestamp
+
+    val lastBackgroundTimestamp: Flow<Long> get() = userPreferencesRepository.lastBackgroundTimestamp
+
+    fun isSessionLoggedIn(): Boolean = userPreferencesRepository.isSessionLoggedIn()
+
+    fun getLastActiveTimestamp(): Long = userPreferencesRepository.getLastActiveTimestamp()
+
+    fun getLastBackgroundTimestamp(): Long = userPreferencesRepository.getLastBackgroundTimestamp()
+
+    fun saveLastActiveTimestamp(timestamp: Long) {
+        userPreferencesRepository.saveLastActiveTimestampSync(timestamp)
+        CoroutineScope(ioDispatcher).launch {
+            userPreferencesRepository.updateLastActiveTimestamp(timestamp)
+        }
+    }
+
+    suspend fun saveLastActiveTimestampSuspend(timestamp: Long) = withContext(ioDispatcher) {
+        userPreferencesRepository.updateLastActiveTimestamp(timestamp)
+    }
+
+    fun saveLastBackgroundTimestamp(timestamp: Long) {
+        saveLastActiveTimestamp(timestamp)
+    }
+
+    suspend fun saveLastBackgroundTimestampSuspend(timestamp: Long) = withContext(ioDispatcher) {
+        userPreferencesRepository.updateLastActiveTimestamp(timestamp)
+    }
+
+    fun isInitialSessionValid(): Boolean = userPreferencesRepository.isInitialSessionValid(SESSION_TIMEOUT_MS)
+
     suspend fun updateLastActiveTimestamp(timestamp: Long = System.currentTimeMillis()) = withContext(ioDispatcher) {
         userPreferencesRepository.updateLastActiveTimestamp(timestamp)
     }
 
-    suspend fun validateSession(): Boolean = withContext(ioDispatcher) {
-        userPreferencesRepository.checkAndInvalidateSessionIfExpired(60_000L)
+    suspend fun validateSession(timeoutMillis: Long = SESSION_TIMEOUT_MS): Boolean = withContext(ioDispatcher) {
+        userPreferencesRepository.checkAndInvalidateSessionIfExpired(timeoutMillis)
     }
 
     suspend fun logout() = withContext(ioDispatcher) {

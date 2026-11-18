@@ -4,6 +4,7 @@ import com.example.monethra.data.dao.UserDao
 import com.example.monethra.data.datastore.UserPreferencesRepository
 import com.example.monethra.data.entity.UserEntity
 import com.example.monethra.data.repository.AuthRepository
+import com.example.monethra.data.session.SessionManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -68,6 +69,7 @@ class AuthViewModelTest {
         val userNameFlow = MutableStateFlow<String?>("")
         val userEmailFlow = MutableStateFlow<String?>("")
         val lastActiveFlow = MutableStateFlow(0L)
+        val lastBackgroundFlow = MutableStateFlow(0L)
 
         override val isOnboardingCompleted: Flow<Boolean> = flowOf(true)
         override val isLoggedIn: Flow<Boolean> = isLoggedInFlow
@@ -81,6 +83,30 @@ class AuthViewModelTest {
         override val paydayStartDay: Flow<Int> = flowOf(1)
         override val lastProcessedPaydayCycle: Flow<String> = flowOf("")
         override val lastActiveTimestamp: Flow<Long> = lastActiveFlow
+        override val lastBackgroundTimestamp: Flow<Long> = lastBackgroundFlow
+
+        override fun isSessionLoggedIn(): Boolean = isLoggedInFlow.value
+        override fun getLastActiveTimestamp(): Long = if (lastActiveFlow.value > 0L) lastActiveFlow.value else lastBackgroundFlow.value
+        override fun saveLastActiveTimestampSync(timestamp: Long) {
+            lastActiveFlow.value = timestamp
+            lastBackgroundFlow.value = timestamp
+        }
+        override fun getLastBackgroundTimestamp(): Long = lastBackgroundFlow.value
+        override fun saveLastBackgroundTimestampSync(timestamp: Long) {
+            lastBackgroundFlow.value = timestamp
+            lastActiveFlow.value = timestamp
+        }
+        override fun isInitialSessionValid(timeoutMillis: Long): Boolean {
+            if (!isLoggedInFlow.value) return false
+            if (lastBackgroundFlow.value > 0L) {
+                if ((System.currentTimeMillis() - lastBackgroundFlow.value) > timeoutMillis) {
+                    isLoggedInFlow.value = false
+                    lastBackgroundFlow.value = 0L
+                    return false
+                }
+            }
+            return true
+        }
 
         override suspend fun setOnboardingCompleted(completed: Boolean) {}
         override suspend fun setSession(isLoggedIn: Boolean, token: String, name: String, email: String, userId: Long) {
@@ -89,6 +115,7 @@ class AuthViewModelTest {
             if (name.isNotBlank()) userNameFlow.value = name
             if (email.isNotBlank()) userEmailFlow.value = email
             activeUserIdFlow.value = userId
+            lastBackgroundFlow.value = 0L
             if (isLoggedIn) {
                 lastActiveFlow.value = System.currentTimeMillis()
             }
@@ -98,13 +125,18 @@ class AuthViewModelTest {
             tokenFlow.value = null
             activeUserIdFlow.value = 0L
             lastActiveFlow.value = 0L
+            lastBackgroundFlow.value = 0L
+        }
+        override suspend fun saveLastBackgroundTimestamp(timestamp: Long) {
+            lastBackgroundFlow.value = timestamp
         }
         override suspend fun updateLastActiveTimestamp(timestamp: Long) {
             lastActiveFlow.value = timestamp
         }
         override suspend fun checkAndInvalidateSessionIfExpired(timeoutMillis: Long, currentTime: Long): Boolean {
             if (!isLoggedInFlow.value) return false
-            if ((currentTime - lastActiveFlow.value) > timeoutMillis) {
+            val checkTime = if (lastBackgroundFlow.value > 0L) lastBackgroundFlow.value else lastActiveFlow.value
+            if ((currentTime - checkTime) > timeoutMillis) {
                 clearSession()
                 return true
             }
@@ -125,6 +157,7 @@ class AuthViewModelTest {
 
     @Before
     fun setUp() {
+        SessionManager.isProcessAlive = true
         Dispatchers.setMain(testDispatcher)
         userDao = TestUserDao()
         prefsRepo = TestUserPreferencesRepository()
@@ -252,6 +285,65 @@ class AuthViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertFalse(prefsRepo.isLoggedInFlow.value)
+        assertEquals(AuthState.Unauthenticated, viewModel.authState.value)
         assertTrue(callbackCalled)
+    }
+
+    @Test
+    fun logoutDueToTimeout_clearsSession() = runTest {
+        prefsRepo.isLoggedInFlow.value = true
+
+        var callbackCalled = false
+        viewModel.logoutDueToTimeout(onComplete = { callbackCalled = true })
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(prefsRepo.isLoggedInFlow.value)
+        assertEquals(AuthState.Unauthenticated, viewModel.authState.value)
+        assertTrue(callbackCalled)
+    }
+
+    @Test
+    fun authViewModel_initializesWithPersistedSession() = runTest {
+        SessionManager.isProcessAlive = true
+        prefsRepo.isLoggedInFlow.value = true
+        val vm = AuthViewModel(authRepository, testDispatcher)
+        assertTrue(vm.isLoggedIn.value)
+        assertTrue(vm.authState.value is AuthState.Authenticated)
+    }
+
+    @Test
+    fun authViewModel_coldStart_clearsPersistedSession() = runTest {
+        SessionManager.isProcessAlive = false
+        prefsRepo.isLoggedInFlow.value = true
+        val vm = AuthViewModel(authRepository, testDispatcher)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(prefsRepo.isLoggedInFlow.value)
+        assertEquals(AuthState.Unauthenticated, vm.authState.value)
+        assertTrue(SessionManager.isProcessAlive)
+    }
+
+    @Test
+    fun onUserInteraction_whenLoggedIn_restartsInactivityTimer() = runTest {
+        prefsRepo.isLoggedInFlow.value = true
+        val vm = AuthViewModel(authRepository, testDispatcher)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // 4 minutes pass
+        testDispatcher.scheduler.advanceTimeBy(4 * 60 * 1000L)
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(vm.isLoggedIn.value)
+
+        // User interacts (screen touch / scroll)
+        vm.onUserInteraction()
+
+        // Another 4 minutes pass (8 minutes total, but timer was reset at min 4)
+        testDispatcher.scheduler.advanceTimeBy(4 * 60 * 1000L)
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(vm.isLoggedIn.value)
+
+        // 2 more minutes pass (6 minutes since last interaction -> exceeds 5 minutes)
+        testDispatcher.scheduler.advanceTimeBy(2 * 60 * 1000L)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(prefsRepo.isLoggedInFlow.value)
     }
 }

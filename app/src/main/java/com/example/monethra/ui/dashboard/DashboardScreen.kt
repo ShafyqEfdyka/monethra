@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.ShoppingBag
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,6 +45,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,11 +73,14 @@ import com.example.monethra.ui.theme.SageGreen
 import com.example.monethra.ui.theme.SecondaryText
 import com.example.monethra.ui.theme.SoftLavender
 import com.example.monethra.ui.theme.WarmIvory
+import com.example.monethra.ui.transactions.AddEditTransactionSheet
 import com.example.monethra.utils.CurrencyFormatter
 import com.example.monethra.utils.DateUtils
 import com.example.monethra.viewmodel.DashboardUiState
 import com.example.monethra.viewmodel.DashboardViewModel
 import com.example.monethra.viewmodel.DashboardViewModelFactory
+import com.example.monethra.viewmodel.TransactionViewModel
+import com.example.monethra.viewmodel.TransactionViewModelFactory
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -82,10 +89,11 @@ import java.util.Locale
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Event
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
-    onAddIncomeClick: () -> Unit = {},
-    onAddExpenseClick: () -> Unit = {},
+    onAddIncomeClick: (() -> Unit)? = null,
+    onAddExpenseClick: (() -> Unit)? = null,
     onSetBudgetClick: () -> Unit = {},
     onSeeAllTransactionsClick: () -> Unit = {},
     onNotificationClick: () -> Unit = {},
@@ -97,13 +105,37 @@ fun DashboardScreen(
     val dashboardViewModel: DashboardViewModel = viewModel(
         factory = DashboardViewModelFactory(app.financeRepository)
     )
+    val transactionViewModel: TransactionViewModel = viewModel(
+        factory = TransactionViewModelFactory(app.financeRepository)
+    )
 
     val uiState by dashboardViewModel.uiState.collectAsState()
 
+    var isAddSheetOpen by remember { mutableStateOf(false) }
+    var selectedTransactionType by remember { mutableStateOf("EXPENSE") }
+
+    val handleAddIncome: () -> Unit = {
+        if (onAddIncomeClick != null) {
+            onAddIncomeClick()
+        } else {
+            selectedTransactionType = "INCOME"
+            isAddSheetOpen = true
+        }
+    }
+
+    val handleAddExpense: () -> Unit = {
+        if (onAddExpenseClick != null) {
+            onAddExpenseClick()
+        } else {
+            selectedTransactionType = "EXPENSE"
+            isAddSheetOpen = true
+        }
+    }
+
     DashboardContent(
         uiState = uiState,
-        onAddIncomeClick = onAddIncomeClick,
-        onAddExpenseClick = onAddExpenseClick,
+        onAddIncomeClick = handleAddIncome,
+        onAddExpenseClick = handleAddExpense,
         onSetBudgetClick = onSetBudgetClick,
         onSeeAllTransactionsClick = onSeeAllTransactionsClick,
         onNotificationClick = onNotificationClick,
@@ -111,6 +143,26 @@ fun DashboardScreen(
         onDismissPaydayBanner = { dashboardViewModel.dismissPaydayBanner() },
         modifier = modifier
     )
+
+    if (isAddSheetOpen) {
+        AddEditTransactionSheet(
+            initialTransactionType = selectedTransactionType,
+            defaultType = selectedTransactionType,
+            onDismiss = { isAddSheetOpen = false },
+            onSave = { title, amount, type, category, date, notes ->
+                transactionViewModel.addTransaction(
+                    title = title,
+                    amount = amount,
+                    type = type,
+                    category = category,
+                    date = date,
+                    notes = notes
+                )
+                isAddSheetOpen = false
+            },
+            currencySymbol = uiState.currencySymbol.ifBlank { "Rp" }
+        )
+    }
 }
 
 @Composable

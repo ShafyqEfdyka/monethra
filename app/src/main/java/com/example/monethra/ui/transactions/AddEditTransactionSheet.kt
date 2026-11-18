@@ -85,6 +85,8 @@ import com.example.monethra.ui.theme.SoftLavender
 import com.example.monethra.ui.theme.WarmIvory
 import com.example.monethra.utils.CurrencyFormatter
 import com.example.monethra.utils.DateUtils
+import com.example.monethra.utils.LocalCurrencyConfig
+import com.example.monethra.utils.ThousandSeparatorVisualTransformation
 import java.util.Calendar
 
 data class CategoryItem(
@@ -131,13 +133,19 @@ object CategoryData {
 @Composable
 fun AddEditTransactionSheet(
     transaction: TransactionEntity? = null,
-    defaultType: String = "EXPENSE",
+    initialTransactionType: String = "EXPENSE",
+    defaultType: String = initialTransactionType,
     onDismiss: () -> Unit,
     onSave: (title: String, amount: Long, type: String, category: String, date: Long, notes: String?) -> Unit,
     currencySymbol: String = "Rp",
     errorMessage: String? = null,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 ) {
+    val effectiveInitialType = transaction?.type
+        ?: if (initialTransactionType in listOf("INCOME", "EXPENSE")) initialTransactionType
+        else if (defaultType in listOf("INCOME", "EXPENSE")) defaultType
+        else "EXPENSE"
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -145,7 +153,8 @@ fun AddEditTransactionSheet(
     ) {
         AddEditTransactionForm(
             transaction = transaction,
-            defaultType = defaultType,
+            initialTransactionType = effectiveInitialType,
+            defaultType = effectiveInitialType,
             onDismiss = onDismiss,
             onSave = onSave,
             currencySymbol = currencySymbol,
@@ -158,23 +167,52 @@ fun AddEditTransactionSheet(
 @Composable
 fun AddEditTransactionForm(
     transaction: TransactionEntity? = null,
-    defaultType: String = "EXPENSE",
+    initialTransactionType: String = "EXPENSE",
+    defaultType: String = initialTransactionType,
     onDismiss: () -> Unit,
     onSave: (title: String, amount: Long, type: String, category: String, date: Long, notes: String?) -> Unit,
     currencySymbol: String = "Rp",
     errorMessage: String? = null
 ) {
     val isEditing = transaction != null
-    var selectedType by remember { mutableStateOf(transaction?.type ?: defaultType) }
-    var title by remember { mutableStateOf(transaction?.title ?: "") }
-    var amountText by remember { mutableStateOf(transaction?.amount?.toString() ?: "") }
-    var selectedCategory by remember {
+    val effectiveType = transaction?.type
+        ?: if (initialTransactionType in listOf("INCOME", "EXPENSE")) initialTransactionType
+        else if (defaultType in listOf("INCOME", "EXPENSE")) defaultType
+        else "EXPENSE"
+
+    val currencyConfig = LocalCurrencyConfig.current
+    val rateFromIdr = currencyConfig.rateFromIdr
+    val activeSymbol = currencyConfig.symbol.ifBlank { currencySymbol }
+
+    var selectedType by remember(transaction, initialTransactionType) {
+        mutableStateOf(effectiveType)
+    }
+    var title by remember(transaction) { mutableStateOf(transaction?.title ?: "") }
+    var amountText by remember(transaction, rateFromIdr) {
         mutableStateOf(
-            transaction?.category ?: if (selectedType == "INCOME") "Salary" else "Food & Drinks"
+            transaction?.amount?.let { amt ->
+                val displayAmt = if (rateFromIdr > 0.0 && rateFromIdr != 1.0) {
+                    kotlin.math.round(CurrencyFormatter.convertFromIdr(amt, rateFromIdr)).toLong()
+                } else {
+                    amt
+                }
+                displayAmt.toString().filter { c -> c.isDigit() }
+            } ?: ""
         )
     }
-    var selectedDate by remember { mutableLongStateOf(transaction?.date ?: System.currentTimeMillis()) }
-    var notes by remember { mutableStateOf(transaction?.notes ?: "") }
+    var selectedCategory by remember(selectedType, transaction) {
+        mutableStateOf(
+            if (transaction != null && transaction.type == selectedType) {
+                transaction.category
+            } else if (selectedType == "INCOME") {
+                CategoryData.incomeCategories.first().name
+            } else {
+                CategoryData.expenseCategories.first().name
+            }
+        )
+    }
+    var selectedDate by remember(transaction) { mutableLongStateOf(transaction?.date ?: System.currentTimeMillis()) }
+    var notes by remember(transaction) { mutableStateOf(transaction?.notes ?: "") }
     var localError by remember { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
@@ -281,12 +319,15 @@ fun AddEditTransactionForm(
         OutlinedTextField(
             value = amountText,
             onValueChange = { input ->
-                val digitsOnly = input.filter { it.isDigit() }
+                val digitsOnly = input.filter { it.isDigit() }.let {
+                    if (it.length > 1 && it.startsWith("0")) it.trimStart('0').ifEmpty { "0" } else it
+                }
                 amountText = digitsOnly
                 localError = null
             },
             label = { Text("Amount") },
-            prefix = { Text("$currencySymbol ") },
+            prefix = { Text("$activeSymbol ") },
+            visualTransformation = ThousandSeparatorVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -442,12 +483,13 @@ fun AddEditTransactionForm(
 
             Button(
                 onClick = {
-                    val parsedAmount = CurrencyFormatter.parseAmount(amountText)
+                    val rawDigits = amountText.filter { it.isDigit() }
+                    val parsedAmount = rawDigits.toLongOrNull() ?: 0L
                     if (title.isBlank()) {
                         localError = "Title is required"
                         return@Button
                     }
-                    if (parsedAmount == null || parsedAmount <= 0) {
+                    if (parsedAmount <= 0L) {
                         localError = "Amount must be greater than 0"
                         return@Button
                     }
@@ -456,13 +498,19 @@ fun AddEditTransactionForm(
                         return@Button
                     }
 
+                    val amountInIdr = if (rateFromIdr > 0.0 && rateFromIdr != 1.0) {
+                        CurrencyFormatter.convertToIdr(parsedAmount.toDouble(), rateFromIdr)
+                    } else {
+                        parsedAmount
+                    }
+
                     onSave(
-                        title,
-                        parsedAmount,
+                        title.trim(),
+                        amountInIdr,
                         selectedType,
                         selectedCategory,
                         selectedDate,
-                        notes.ifBlank { null }
+                        notes.trim().ifBlank { null }
                     )
                 },
                 modifier = Modifier.weight(1f),

@@ -57,7 +57,13 @@ class FinanceRepository(
     }
 
     suspend fun updateTransaction(transaction: TransactionEntity) {
-        transactionDao.updateTransaction(transaction)
+        val currentUserId = activeUserId.first()
+        val txToSave = if (transaction.userId == 0L && currentUserId > 0L) {
+            transaction.copy(userId = currentUserId)
+        } else {
+            transaction
+        }
+        transactionDao.updateTransaction(txToSave)
     }
 
     suspend fun deleteTransaction(transaction: TransactionEntity) {

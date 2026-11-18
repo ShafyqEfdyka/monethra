@@ -46,6 +46,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -89,12 +92,24 @@ fun TransactionsScreen(
 
     val uiState by transactionViewModel.uiState.collectAsState()
 
+    var hasHandledAutoOpen by rememberSaveable(initialAutoOpenAdd, initialTypeFilter) {
+        mutableStateOf(false)
+    }
+
     LaunchedEffect(initialTypeFilter, initialAutoOpenAdd) {
-        if (!initialTypeFilter.isNullOrBlank() && initialTypeFilter in listOf("INCOME", "EXPENSE")) {
-            transactionViewModel.onFilterChange(initialTypeFilter)
-        }
-        if (initialAutoOpenAdd) {
-            transactionViewModel.openAddTransactionSheet(preselectedType = initialTypeFilter ?: "EXPENSE")
+        if (!hasHandledAutoOpen) {
+            if (!initialTypeFilter.isNullOrBlank() && initialTypeFilter in listOf("INCOME", "EXPENSE")) {
+                transactionViewModel.onFilterChange(initialTypeFilter)
+            }
+            if (initialAutoOpenAdd) {
+                val preselected = if (!initialTypeFilter.isNullOrBlank() && initialTypeFilter in listOf("INCOME", "EXPENSE")) {
+                    initialTypeFilter
+                } else {
+                    "EXPENSE"
+                }
+                transactionViewModel.openAddTransactionSheet(preselectedType = preselected)
+            }
+            hasHandledAutoOpen = true
         }
     }
 
@@ -102,7 +117,10 @@ fun TransactionsScreen(
         uiState = uiState,
         onSearchQueryChange = transactionViewModel::onSearchQueryChange,
         onFilterChange = transactionViewModel::onFilterChange,
-        onAddClick = { transactionViewModel.openAddTransactionSheet(uiState.typeFilter) },
+        onAddClick = {
+            val preselected = if (uiState.typeFilter in listOf("INCOME", "EXPENSE")) uiState.typeFilter else "EXPENSE"
+            transactionViewModel.openAddTransactionSheet(preselected)
+        },
         onEditClick = transactionViewModel::openEditTransactionSheet,
         onDeleteClick = transactionViewModel::openDeleteConfirmation,
         onDismissAddEditSheet = transactionViewModel::closeAddEditSheet,
@@ -110,13 +128,14 @@ fun TransactionsScreen(
             val selectedTx = uiState.selectedTransaction
             if (selectedTx != null) {
                 transactionViewModel.updateTransaction(
-                    id = selectedTx.id,
-                    title = title,
-                    amount = amount,
-                    type = type,
-                    category = category,
-                    date = date,
-                    notes = notes
+                    selectedTx.copy(
+                        title = title,
+                        amount = amount,
+                        type = type,
+                        category = category,
+                        date = date,
+                        notes = notes
+                    )
                 )
             } else {
                 transactionViewModel.addTransaction(
@@ -293,9 +312,11 @@ fun TransactionsContent(
 
         // Add / Edit Transaction Sheet
         if (uiState.isAddEditSheetOpen) {
+            val preselectedType = if (uiState.typeFilter in listOf("INCOME", "EXPENSE")) uiState.typeFilter else "EXPENSE"
             AddEditTransactionSheet(
                 transaction = uiState.selectedTransaction,
-                defaultType = uiState.typeFilter,
+                initialTransactionType = preselectedType,
+                defaultType = preselectedType,
                 onDismiss = onDismissAddEditSheet,
                 onSave = onSaveTransaction,
                 currencySymbol = uiState.currencySymbol,

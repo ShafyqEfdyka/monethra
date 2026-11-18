@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -229,15 +230,30 @@ class TransactionViewModel(
                 return@launch
             }
 
-            val entity = TransactionEntity(
-                id = id,
-                title = title.trim(),
-                amount = amount,
-                type = type.uppercase(),
-                category = category.trim(),
-                date = date,
-                notes = notes?.trim().takeIf { !it.isNullOrBlank() }
-            )
+            val existingTx = _selectedTransaction.value
+            val currentUserId = repository.activeUserId.first()
+            val entity = if (existingTx != null && existingTx.id == id) {
+                existingTx.copy(
+                    title = title.trim(),
+                    amount = amount,
+                    type = type.uppercase(),
+                    category = category.trim(),
+                    date = date,
+                    notes = notes?.trim().takeIf { !it.isNullOrBlank() },
+                    userId = if (existingTx.userId > 0L) existingTx.userId else currentUserId
+                )
+            } else {
+                TransactionEntity(
+                    id = id,
+                    title = title.trim(),
+                    amount = amount,
+                    type = type.uppercase(),
+                    category = category.trim(),
+                    date = date,
+                    notes = notes?.trim().takeIf { !it.isNullOrBlank() },
+                    userId = currentUserId
+                )
+            }
             repository.updateTransaction(entity)
             _saveSuccess.value = true
             closeAddEditSheet()
@@ -246,7 +262,13 @@ class TransactionViewModel(
 
     fun updateTransaction(transaction: TransactionEntity) {
         viewModelScope.launch {
-            repository.updateTransaction(transaction)
+            val currentUserId = repository.activeUserId.first()
+            val entityToUpdate = if (transaction.userId == 0L && currentUserId > 0L) {
+                transaction.copy(userId = currentUserId)
+            } else {
+                transaction
+            }
+            repository.updateTransaction(entityToUpdate)
             _saveSuccess.value = true
             closeAddEditSheet()
         }

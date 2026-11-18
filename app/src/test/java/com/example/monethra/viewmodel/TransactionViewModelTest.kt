@@ -312,4 +312,85 @@ class TransactionViewModelTest {
 
         assertTrue(viewModel.uiState.value.filteredTransactions.isEmpty())
     }
+
+    @Test
+    fun transactionViewModel_updateTransaction_preservesIdAndUserId() = runTest {
+        val now = System.currentTimeMillis()
+        val original = TransactionEntity(
+            id = 42L,
+            title = "Monthly Salary",
+            amount = 7500000L,
+            type = "INCOME",
+            category = "Salary",
+            date = now,
+            userId = 1L
+        )
+        txDao.insertTransactions(listOf(original))
+
+        backgroundScope.launch {
+            viewModel.uiState.collect()
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.openEditTransactionSheet(original)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(original, viewModel.uiState.value.selectedTransaction)
+
+        viewModel.updateTransaction(
+            id = original.id,
+            title = "Monthly Salary Updated",
+            amount = 8000000L,
+            type = "INCOME",
+            category = "Salary",
+            date = now,
+            notes = "Bonus added"
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.saveSuccess)
+        assertFalse(state.isAddEditSheetOpen)
+        assertNull(state.selectedTransaction)
+
+        val updated = txDao.txList.value.first { it.id == 42L }
+        assertEquals(42L, updated.id)
+        assertEquals(1L, updated.userId)
+        assertEquals("Monthly Salary Updated", updated.title)
+        assertEquals(8000000L, updated.amount)
+        assertEquals("INCOME", updated.type)
+    }
+
+    @Test
+    fun transactionViewModel_updateTransaction_entityOverload_preservesIdAndUserId() = runTest {
+        val now = System.currentTimeMillis()
+        val original = TransactionEntity(
+            id = 99L,
+            title = "Old Item",
+            amount = 100000L,
+            type = "EXPENSE",
+            category = "Food & Dining",
+            date = now,
+            userId = 5L
+        )
+        txDao.insertTransactions(listOf(original))
+
+        backgroundScope.launch {
+            viewModel.uiState.collect()
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.openEditTransactionSheet(original)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val modified = original.copy(title = "New Item", amount = 150000L)
+        viewModel.updateTransaction(modified)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val updated = txDao.txList.value.first { it.id == 99L }
+        assertEquals(99L, updated.id)
+        assertEquals(5L, updated.userId)
+        assertEquals("New Item", updated.title)
+        assertEquals(150000L, updated.amount)
+    }
 }

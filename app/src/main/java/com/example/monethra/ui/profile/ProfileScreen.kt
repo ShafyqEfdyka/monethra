@@ -2,6 +2,7 @@
 
 package com.example.monethra.ui.profile
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,21 +13,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Help
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachMoney
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Email
@@ -37,7 +45,9 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.PrivacyTip
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SettingsSystemDaydream
 import androidx.compose.material.icons.rounded.Storage
@@ -56,7 +66,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -64,7 +76,16 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import com.example.monethra.data.model.CurrencyModel
+import com.example.monethra.data.model.WorldCurrency
+import com.example.monethra.data.model.GLOBAL_CURRENCY_CATALOG
+import java.text.NumberFormat
+import java.util.Locale
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -135,7 +156,21 @@ fun ProfileScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState) { data ->
+                CompositionLocalProvider(
+                    LocalTextStyle provides MaterialTheme.typography.bodyMedium.copy(color = Color.White)
+                ) {
+                    Snackbar(
+                        snackbarData = data,
+                        containerColor = Color(0xFF1E1B4B), // Deep indigo-charcoal background
+                        contentColor = Color.White,          // Crisp white readable text
+                        actionColor = Color(0xFF9FA0FF),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            }
+        },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Surface(
@@ -262,10 +297,29 @@ fun ProfileScreen(
 
             if (uiState.isCurrencyDialogOpen) {
                 CurrencySelectorDialog(
-                    currentSymbol = selectedCurrency,
+                    currentCurrencyCode = uiState.currencyCode,
+                    availableCurrencies = uiState.availableCurrencies,
                     onDismiss = { viewModel.closeCurrencyDialog() },
-                    onSelectCurrency = { symbol ->
-                        viewModel.updateCurrency(symbol)
+                    onSelectCurrency = { currency ->
+                        viewModel.selectCurrency(currency)
+                    },
+                    onOpenAddCustomCurrency = {
+                        viewModel.openAddCustomCurrencyDialog()
+                    },
+                    onDeleteCustomCurrency = { code ->
+                        viewModel.deleteCustomCurrency(code)
+                    }
+                )
+            }
+
+            if (uiState.isAddCustomCurrencyDialogOpen) {
+                AddCurrencyPickerDialog(
+                    existingCurrencyCodes = uiState.availableCurrencies.map { it.code },
+                    cachedRates = uiState.cachedRates,
+                    addingCurrencyCode = uiState.addingCurrencyCode,
+                    onDismiss = { viewModel.closeAddCustomCurrencyDialog() },
+                    onSelectCurrency = { worldCurrency ->
+                        viewModel.addCurrencyFromWorldCatalog(worldCurrency)
                     }
                 )
             }
@@ -937,42 +991,376 @@ fun EditProfileDialog(
 
 @Composable
 fun CurrencySelectorDialog(
-    currentSymbol: String,
+    currentCurrencyCode: String,
+    availableCurrencies: List<CurrencyModel>,
     onDismiss: () -> Unit,
-    onSelectCurrency: (String) -> Unit
+    onSelectCurrency: (CurrencyModel) -> Unit,
+    onOpenAddCustomCurrency: () -> Unit,
+    onDeleteCustomCurrency: (String) -> Unit
 ) {
-    val currencies = listOf(
-        "Rp" to "Indonesian Rupiah (IDR)",
-        "$" to "US Dollar (USD)",
-        "€" to "Euro (EUR)",
-        "£" to "British Pound (GBP)"
-    )
+    var selectedCode by remember(currentCurrencyCode) { mutableStateOf(currentCurrencyCode) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select Currency Preference", fontWeight = FontWeight.Bold) },
+        title = {
+            Text(
+                text = "Select Currency Preference",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = PrimaryText
+            )
+        },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                currencies.forEach { (symbol, description) ->
-                    Row(
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Financial amounts will convert automatically. Base records remain in IDR.",
+                    fontSize = 12.sp,
+                    color = SecondaryText,
+                    lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                availableCurrencies.forEach { currency ->
+                    val isSelected = currency.code.equals(selectedCode, ignoreCase = true)
+                    val rateToIdr = if (currency.rateFromIdr > 0) 1.0 / currency.rateFromIdr else 1.0
+                    val formattedRate = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
+                        .format(kotlin.math.round(rateToIdr).toLong())
+
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelectCurrency(symbol) }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { selectedCode = currency.code },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) Color(0xFF9FA0FF).copy(alpha = 0.2f) else Color.Transparent,
+                        border = if (isSelected) {
+                            BorderStroke(1.5.dp, Color(0xFF9FA0FF))
+                        } else {
+                            BorderStroke(1.dp, Color(0xFFE5E7EB))
+                        }
                     ) {
-                        RadioButton(
-                            selected = currentSymbol == symbol,
-                            onClick = { onSelectCurrency(symbol) }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "$symbol ($description)",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = PrimaryText
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { selectedCode = currency.code },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFF4F46E5),
+                                    unselectedColor = Color(0xFF6B7280)
+                                )
                             )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${currency.code} (${currency.symbol}) - ${currency.name}",
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                    color = PrimaryText
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (currency.code.equals("IDR", ignoreCase = true)) {
+                                        "Base Currency (1 IDR = Rp 1)"
+                                    } else {
+                                        "1 ${currency.code} ≈ Rp $formattedRate"
+                                    },
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) Color(0xFF4338CA) else SecondaryText
+                                )
+                            }
+
+                            if (!currency.isDefault) {
+                                IconButton(
+                                    onClick = { onDeleteCustomCurrency(currency.code) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.DeleteOutline,
+                                        contentDescription = "Delete ${currency.code}",
+                                        tint = ExpenseRed,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // + Add World Currency Button
+                OutlinedButton(
+                    onClick = onOpenAddCustomCurrency,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF9FA0FF)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Color(0xFF4F46E5)
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Add World Currency",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Rates updated automatically • Real-time",
+                    fontSize = 11.sp,
+                    color = SecondaryText,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val chosen = availableCurrencies.find { it.code.equals(selectedCode, ignoreCase = true) }
+                        ?: availableCurrencies.firstOrNull()
+                    if (chosen != null) {
+                        onSelectCurrency(chosen)
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF9FA0FF),
+                    contentColor = Color(0xFF1E1B4B)
+                )
+            ) {
+                Text(
+                    text = "Save",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = Color(0xFF4B5563)
+                )
+            ) {
+                Text(
+                    text = "Cancel",
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    )
+}
+
+@Composable
+fun AddCurrencyPickerDialog(
+    existingCurrencyCodes: List<String>,
+    cachedRates: Map<String, Double>,
+    addingCurrencyCode: String?,
+    onDismiss: () -> Unit,
+    onSelectCurrency: (WorldCurrency) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Normalize existing currency codes to uppercase for robust filtering
+    val existingNormalized = remember(existingCurrencyCodes) {
+        existingCurrencyCodes.map { it.uppercase().trim() }.toSet()
+    }
+
+    // Filter catalog: exclude currencies already present, and match query
+    val availableCurrencies = remember(searchQuery, existingNormalized) {
+        val trimmedQuery = searchQuery.trim()
+        GLOBAL_CURRENCY_CATALOG.filter { currency ->
+            val codeUpper = currency.code.uppercase()
+            !existingNormalized.contains(codeUpper) &&
+                (trimmedQuery.isEmpty() ||
+                    codeUpper.contains(trimmedQuery, ignoreCase = true) ||
+                    currency.name.contains(trimmedQuery, ignoreCase = true) ||
+                    currency.symbol.contains(trimmedQuery, ignoreCase = true))
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (addingCurrencyCode == null) onDismiss()
+        },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Public,
+                    contentDescription = null,
+                    tint = Color(0xFF4F46E5),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Add World Currency",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = PrimaryText
+                    )
+                    Text(
+                        text = "Select from global currencies with live rates",
+                        fontSize = 12.sp,
+                        color = SecondaryText
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Instant Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = {
+                        Text(
+                            text = "Search currency (e.g. JPY, Euro)...",
+                            fontSize = 13.sp,
+                            color = SecondaryText
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = "Search",
+                            tint = Color(0xFF6B7280),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Clear",
+                                    tint = Color(0xFF6B7280),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (availableCurrencies.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "No currencies found matching \"$searchQuery\"" else "All available currencies have been added",
+                            fontSize = 13.sp,
+                            color = SecondaryText,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(availableCurrencies, key = { it.code }) { currency ->
+                            val isAddingThis = addingCurrencyCode == currency.code
+                            val isAddingAny = addingCurrencyCode != null
+                            val rateFromIdr = cachedRates[currency.code] ?: currency.fallbackRateFromIdr
+                            val rateToIdr = if (rateFromIdr > 0.0) 1.0 / rateFromIdr else 1.0
+                            val formattedRate = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
+                                .format(kotlin.math.round(rateToIdr).toLong())
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isAddingThis) Color(0xFF9FA0FF).copy(alpha = 0.15f) else Color.White,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isAddingThis) Color(0xFF9FA0FF) else Color(0xFFE5E7EB)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        enabled = !isAddingAny,
+                                        onClick = { onSelectCurrency(currency) }
+                                    )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Currency Code Pill Badge
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF9FA0FF).copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = currency.code,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF4338CA),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "${currency.symbol}  ${currency.name}",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = PrimaryText
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "1 ${currency.code} ≈ Rp $formattedRate",
+                                            fontSize = 12.sp,
+                                            color = SecondaryText
+                                        )
+                                    }
+
+                                    if (isAddingThis) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = Color(0xFF4F46E5)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -980,8 +1368,17 @@ fun CurrencySelectorDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
+            TextButton(
+                onClick = onDismiss,
+                enabled = addingCurrencyCode == null,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = Color(0xFF4B5563)
+                )
+            ) {
+                Text(
+                    text = "Close",
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     )

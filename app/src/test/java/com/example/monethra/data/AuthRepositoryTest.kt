@@ -60,6 +60,7 @@ class AuthRepositoryTest {
         var email: String? = null
         var activeId: Long = 0L
         var lastActive: Long = 0L
+        var lastBackground: Long = 0L
 
         override val isOnboardingCompleted: Flow<Boolean> = flowOf(true)
         override val isLoggedIn: Flow<Boolean> get() = flowOf(loggedIn)
@@ -73,6 +74,37 @@ class AuthRepositoryTest {
         override val paydayStartDay: Flow<Int> = flowOf(1)
         override val lastProcessedPaydayCycle: Flow<String> = flowOf("")
         override val lastActiveTimestamp: Flow<Long> get() = flowOf(lastActive)
+        override val lastBackgroundTimestamp: Flow<Long> get() = flowOf(lastBackground)
+
+        override fun isSessionLoggedIn(): Boolean = loggedIn
+        override fun getLastBackgroundTimestamp(): Long = lastBackground
+        override fun saveLastBackgroundTimestampSync(timestamp: Long) {
+            this.lastBackground = timestamp
+        }
+        override fun isInitialSessionValid(timeoutMillis: Long): Boolean {
+            if (!loggedIn) return false
+            if (lastBackground > 0L) {
+                if ((System.currentTimeMillis() - lastBackground) > timeoutMillis) {
+                    clearSessionSync()
+                    return false
+                }
+            }
+            return true
+        }
+
+        private fun clearSessionSync() {
+            this.loggedIn = false
+            this.token = null
+            this.activeId = 0L
+            this.lastActive = 0L
+            this.lastBackground = 0L
+        }
+
+        override fun getLastActiveTimestamp(): Long = if (lastActive > 0L) lastActive else lastBackground
+        override fun saveLastActiveTimestampSync(timestamp: Long) {
+            this.lastActive = timestamp
+            this.lastBackground = timestamp
+        }
 
         override suspend fun setOnboardingCompleted(completed: Boolean) {}
         override suspend fun setSession(isLoggedIn: Boolean, token: String, name: String, email: String, userId: Long) {
@@ -81,22 +113,25 @@ class AuthRepositoryTest {
             if (name.isNotBlank()) this.name = name
             if (email.isNotBlank()) this.email = email
             this.activeId = userId
+            this.lastBackground = 0L
             if (isLoggedIn) {
                 this.lastActive = System.currentTimeMillis()
             }
         }
         override suspend fun clearSession() {
-            this.loggedIn = false
-            this.token = null
-            this.activeId = 0L
-            this.lastActive = 0L
+            clearSessionSync()
+        }
+        override suspend fun saveLastBackgroundTimestamp(timestamp: Long) {
+            this.lastBackground = timestamp
+            this.lastActive = timestamp
         }
         override suspend fun updateLastActiveTimestamp(timestamp: Long) {
             this.lastActive = timestamp
         }
         override suspend fun checkAndInvalidateSessionIfExpired(timeoutMillis: Long, currentTime: Long): Boolean {
             if (!loggedIn) return false
-            if ((currentTime - lastActive) > timeoutMillis) {
+            val checkTime = if (lastBackground > 0L) lastBackground else lastActive
+            if ((currentTime - checkTime) > timeoutMillis) {
                 clearSession()
                 return true
             }
@@ -216,5 +251,43 @@ class AuthRepositoryTest {
 
         assertTrue(loginResult.isSuccess)
         assertTrue(prefsRepo.lastActive >= nowBefore)
+    }
+
+    @Test
+    fun session_withinFiveMinutes_remainsValid() = runTest {
+        authRepository.signUp("Alice Smith", "alice@monethra.app", "pass1234")
+        assertTrue(authRepository.isSessionLoggedIn())
+
+        val bgTime = 100_000L
+        authRepository.saveLastActiveTimestamp(bgTime)
+        assertEquals(bgTime, authRepository.getLastActiveTimestamp())
+
+        // 3 minutes in background (within 5 minutes)
+        val expired = prefsRepo.checkAndInvalidateSessionIfExpired(
+            timeoutMillis = AuthRepository.SESSION_TIMEOUT_MS,
+            currentTime = bgTime + (3 * 60 * 1000L)
+        )
+
+        assertFalse(expired)
+        assertTrue(authRepository.isSessionLoggedIn())
+    }
+
+    @Test
+    fun session_afterFiveMinutes_expires() = runTest {
+        authRepository.signUp("Alice Smith", "alice@monethra.app", "pass1234")
+        assertTrue(authRepository.isSessionLoggedIn())
+
+        val bgTime = 100_000L
+        authRepository.saveLastActiveTimestamp(bgTime)
+
+        // 6 minutes in background (after 5 minutes)
+        val expired = prefsRepo.checkAndInvalidateSessionIfExpired(
+            timeoutMillis = AuthRepository.SESSION_TIMEOUT_MS,
+            currentTime = bgTime + (6 * 60 * 1000L)
+        )
+
+        assertTrue(expired)
+        assertFalse(authRepository.isSessionLoggedIn())
+        assertEquals(0L, authRepository.getLastActiveTimestamp())
     }
 }

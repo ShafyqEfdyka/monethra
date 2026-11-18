@@ -46,6 +46,8 @@ import com.example.monethra.ui.theme.PrimaryText
 import com.example.monethra.ui.theme.SecondaryText
 import com.example.monethra.ui.theme.WarmIvory
 import com.example.monethra.utils.CurrencyFormatter
+import com.example.monethra.utils.LocalCurrencyConfig
+import com.example.monethra.utils.ThousandSeparatorVisualTransformation
 import com.example.monethra.viewmodel.CategoryAllocationUiModel
 
 @Composable
@@ -56,7 +58,19 @@ fun SetTotalBudgetDialog(
     onDismiss: () -> Unit,
     onSave: (Long) -> Unit
 ) {
-    var amountText by remember { mutableStateOf(if (currentTotalBudget > 0) currentTotalBudget.toString() else "") }
+    val currencyConfig = LocalCurrencyConfig.current
+    val rateFromIdr = currencyConfig.rateFromIdr
+    val activeSymbol = currencyConfig.symbol.ifBlank { currencySymbol }
+
+    val initialDisplayBudget = if (currentTotalBudget > 0) {
+        val converted = if (rateFromIdr > 0.0 && rateFromIdr != 1.0) {
+            kotlin.math.round(CurrencyFormatter.convertFromIdr(currentTotalBudget, rateFromIdr)).toLong()
+        } else {
+            currentTotalBudget
+        }
+        converted.toString()
+    } else ""
+    var amountText by remember(currentTotalBudget, rateFromIdr) { mutableStateOf(initialDisplayBudget) }
     var localError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -81,12 +95,15 @@ fun SetTotalBudgetDialog(
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { input ->
-                        val digits = input.filter { it.isDigit() }
+                        val digits = input.filter { it.isDigit() }.let {
+                            if (it.length > 1 && it.startsWith("0")) it.trimStart('0').ifEmpty { "0" } else it
+                        }
                         amountText = digits
                         localError = null
                     },
                     label = { Text("Total Monthly Budget") },
-                    prefix = { Text("$currencySymbol ") },
+                    prefix = { Text("$activeSymbol ") },
+                    visualTransformation = ThousandSeparatorVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -108,12 +125,17 @@ fun SetTotalBudgetDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val parsed = CurrencyFormatter.parseAmount(amountText)
+                    val parsed = amountText.toLongOrNull() ?: CurrencyFormatter.parseAmount(amountText)
                     if (parsed == null || parsed < 0) {
                         localError = "Please enter a valid amount"
                         return@Button
                     }
-                    onSave(parsed)
+                    val amountInIdr = if (rateFromIdr > 0.0 && rateFromIdr != 1.0) {
+                        CurrencyFormatter.convertToIdr(parsed.toDouble(), rateFromIdr)
+                    } else {
+                        parsed
+                    }
+                    onSave(amountInIdr)
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = PowderBlue,
@@ -145,8 +167,19 @@ fun AddEditCategoryBudgetDialog(
     onDelete: ((categoryName: String) -> Unit)? = null
 ) {
     val isEditing = allocationToEdit != null
+    val currencyConfig = LocalCurrencyConfig.current
+    val rateFromIdr = currencyConfig.rateFromIdr
+    val activeSymbol = currencyConfig.symbol.ifBlank { currencySymbol }
+
     var categoryName by remember { mutableStateOf(allocationToEdit?.categoryName ?: "Food & Drinks") }
-    var amountText by remember { mutableStateOf(allocationToEdit?.allocatedAmount?.toString() ?: "") }
+    val initialDisplayAllocated = allocationToEdit?.allocatedAmount?.let { amt ->
+        if (rateFromIdr > 0.0 && rateFromIdr != 1.0) {
+            kotlin.math.round(CurrencyFormatter.convertFromIdr(amt, rateFromIdr)).toLong()
+        } else {
+            amt
+        }
+    }?.toString() ?: ""
+    var amountText by remember(allocationToEdit, rateFromIdr) { mutableStateOf(initialDisplayAllocated) }
     var localError by remember { mutableStateOf<String?>(null) }
 
     val presetCategories = CategoryData.expenseCategories
@@ -244,12 +277,15 @@ fun AddEditCategoryBudgetDialog(
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { input ->
-                        val digits = input.filter { it.isDigit() }
+                        val digits = input.filter { it.isDigit() }.let {
+                            if (it.length > 1 && it.startsWith("0")) it.trimStart('0').ifEmpty { "0" } else it
+                        }
                         amountText = digits
                         localError = null
                     },
                     label = { Text("Allocated Budget Amount") },
-                    prefix = { Text("$currencySymbol ") },
+                    prefix = { Text("$activeSymbol ") },
+                    visualTransformation = ThousandSeparatorVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -282,7 +318,7 @@ fun AddEditCategoryBudgetDialog(
 
                 Button(
                     onClick = {
-                        val parsed = CurrencyFormatter.parseAmount(amountText)
+                        val parsed = amountText.toLongOrNull() ?: CurrencyFormatter.parseAmount(amountText)
                         if (categoryName.isBlank()) {
                             localError = "Category name is required"
                             return@Button
@@ -291,7 +327,12 @@ fun AddEditCategoryBudgetDialog(
                             localError = "Amount must be greater than 0"
                             return@Button
                         }
-                        onSave(categoryName, parsed)
+                        val amountInIdr = if (rateFromIdr > 0.0 && rateFromIdr != 1.0) {
+                            CurrencyFormatter.convertToIdr(parsed.toDouble(), rateFromIdr)
+                        } else {
+                            parsed
+                        }
+                        onSave(categoryName, amountInIdr)
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = PowderBlue,

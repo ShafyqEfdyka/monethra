@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.monethra.data.repository.AuthRepository
+import com.example.monethra.data.session.SessionManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -45,10 +48,36 @@ data class SignUpUiState(
     val isSuccess: Boolean = false
 )
 
+sealed interface AuthState {
+    data object Loading : AuthState
+    data class Authenticated(val userId: Long = 0L, val email: String = "") : AuthState
+    data object Unauthenticated : AuthState
+}
+
 class AuthViewModel(
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
+
+    companion object {
+        const val SESSION_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
+        private const val THROTTLE_PERSIST_MS = 15 * 1000L // 15 seconds
+    }
+
+    private var inactivityJob: Job? = null
+    private var lastPersistedTimestamp: Long = 0L
+
+    // On cold app launch (process was killed), invalidate persisted session immediately
+    private val isInitialValid: Boolean = if (!SessionManager.isProcessAlive) {
+        false
+    } else {
+        authRepository.isInitialSessionValid()
+    }
+
+    private val _authState = MutableStateFlow<AuthState>(
+        if (isInitialValid) AuthState.Authenticated() else AuthState.Unauthenticated
+    )
+    val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
     private val _loginState = MutableStateFlow(LoginUiState())
     val loginState: StateFlow<LoginUiState> = _loginState.asStateFlow()
@@ -61,8 +90,63 @@ class AuthViewModel(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
+            initialValue = isInitialValid
         )
+
+    init {
+        if (!SessionManager.isProcessAlive) {
+            viewModelScope.launch(ioDispatcher) {
+                try {
+                    authRepository.logout()
+                } catch (_: Exception) {}
+            }
+            SessionManager.isProcessAlive = true
+        }
+
+        viewModelScope.launch(ioDispatcher) {
+            authRepository.isLoggedIn().collect { loggedIn ->
+                if (loggedIn) {
+                    val user = authRepository.getCurrentUserSync()
+                    _authState.value = AuthState.Authenticated(
+                        userId = user?.id ?: 0L,
+                        email = user?.email ?: ""
+                    )
+                } else {
+                    cancelInactivityTimer()
+                    _authState.value = AuthState.Unauthenticated
+                }
+            }
+        }
+    }
+
+    fun onUserInteraction() {
+        val currentlyLoggedIn = authRepository.isSessionLoggedIn() || isLoggedIn.value
+        if (!currentlyLoggedIn) {
+            cancelInactivityTimer()
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastPersistedTimestamp >= THROTTLE_PERSIST_MS) {
+            lastPersistedTimestamp = now
+            authRepository.saveLastActiveTimestamp(now)
+        }
+
+        restartInactivityTimer()
+    }
+
+    fun restartInactivityTimer() {
+        inactivityJob?.cancel()
+        inactivityJob = viewModelScope.launch(ioDispatcher) {
+            delay(SESSION_TIMEOUT_MS)
+            logoutDueToTimeout()
+        }
+    }
+
+    fun cancelInactivityTimer() {
+        inactivityJob?.cancel()
+        inactivityJob = null
+    }
 
     // Login functions
     fun onLoginEmailChanged(email: String) {
@@ -136,6 +220,7 @@ class AuthViewModel(
                 try {
                     val result = authRepository.login(email, password)
                     result.onSuccess {
+                        SessionManager.isProcessAlive = true
                         _loginState.update { state ->
                             state.copy(
                                 isLoading = false,
@@ -304,6 +389,7 @@ class AuthViewModel(
                 try {
                     val result = authRepository.signUp(name, email, password)
                     result.onSuccess {
+                        SessionManager.isProcessAlive = true
                         _signUpState.update { state ->
                             state.copy(
                                 isLoading = false,
@@ -352,16 +438,37 @@ class AuthViewModel(
         }
     }
 
-    fun logout(onComplete: () -> Unit = {}) {
+    fun logoutDueToTimeout(onComplete: () -> Unit = {}) {
+        cancelInactivityTimer()
         viewModelScope.launch(ioDispatcher) {
             try {
                 authRepository.logout()
             } catch (_: Exception) {}
+            _authState.value = AuthState.Unauthenticated
             withContext(Dispatchers.Main) {
                 resetStates()
                 onComplete()
             }
         }
+    }
+
+    fun logout(onComplete: () -> Unit = {}) {
+        cancelInactivityTimer()
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                authRepository.logout()
+            } catch (_: Exception) {}
+            _authState.value = AuthState.Unauthenticated
+            withContext(Dispatchers.Main) {
+                resetStates()
+                onComplete()
+            }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        cancelInactivityTimer()
     }
 
     fun resetStates() {

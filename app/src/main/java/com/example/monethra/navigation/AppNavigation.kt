@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,7 +26,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -36,6 +36,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.monethra.MonethraApplication
+import com.example.monethra.data.repository.CurrencyRepository
+import com.example.monethra.utils.CurrencyConfig
+import com.example.monethra.utils.CurrencyFormatter
+import com.example.monethra.utils.LocalCurrencyConfig
 import com.example.monethra.ui.auth.LoginScreen
 import com.example.monethra.ui.auth.SignUpScreen
 import com.example.monethra.ui.budget.BudgetScreen
@@ -107,8 +111,7 @@ fun MonethraApp() {
             if (event == Lifecycle.Event.ON_RESUME) {
                 authRepository?.let { repo ->
                     CoroutineScope(Dispatchers.Main).launch {
-                        val expired = repo.validateSession()
-                        if (!expired && repo.isLoggedIn.first()) {
+                        if (repo.isSessionLoggedIn()) {
                             repo.updateLastActiveTimestamp()
                         }
                     }
@@ -145,10 +148,29 @@ fun MonethraApp() {
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+    val currencyRepository = app?.currencyRepository
+    val activeCurrency by (currencyRepository?.activeCurrency?.collectAsState(initial = CurrencyRepository.DEFAULT_CURRENCIES.first())
+        ?: remember { mutableStateOf(CurrencyRepository.DEFAULT_CURRENCIES.first()) })
+
+    LaunchedEffect(activeCurrency) {
+        CurrencyFormatter.currentConfig = CurrencyConfig(
+            currencyCode = activeCurrency.code,
+            symbol = activeCurrency.symbol,
+            rateFromIdr = activeCurrency.rateFromIdr
+        )
+    }
+
+    CompositionLocalProvider(
+        LocalCurrencyConfig provides CurrencyConfig(
+            currencyCode = activeCurrency.code,
+            symbol = activeCurrency.symbol,
+            rateFromIdr = activeCurrency.rateFromIdr
+        )
     ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val isTablet = maxWidth >= 600.dp
 
@@ -200,6 +222,7 @@ fun MonethraApp() {
             }
         }
     }
+}
 }
 
 @Composable
@@ -294,20 +317,6 @@ fun AppNavHost(
         }
         composable(Routes.DASHBOARD) {
             DashboardScreen(
-                onAddIncomeClick = {
-                    navController.navigate("${Routes.TRANSACTIONS}?filter=INCOME&autoOpen=true") {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-                onAddExpenseClick = {
-                    navController.navigate("${Routes.TRANSACTIONS}?filter=EXPENSE&autoOpen=true") {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
                 onSetBudgetClick = { onNavigateToDestination(TopLevelDestination.BUDGET) },
                 onSeeAllTransactionsClick = { onNavigateToDestination(TopLevelDestination.TRANSACTIONS) },
                 onProfileClick = { onNavigateToDestination(TopLevelDestination.PROFILE) }
@@ -347,7 +356,8 @@ fun AppNavHost(
                 viewModel(
                     factory = ProfileViewModelFactory(
                         repository = it.financeRepository,
-                        authRepository = it.authRepository
+                        authRepository = it.authRepository,
+                        currencyRepository = it.currencyRepository
                     )
                 )
             }
