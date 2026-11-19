@@ -35,6 +35,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import com.example.monethra.ui.theme.MonethraPastelPalette
 import com.example.monethra.MonethraApplication
 import com.example.monethra.data.repository.CurrencyRepository
 import com.example.monethra.utils.CurrencyConfig
@@ -78,18 +88,12 @@ fun MonethraApp() {
     val context = LocalContext.current
     val app = context.applicationContext as? MonethraApplication
     val authRepository = app?.authRepository
-    val userPreferencesRepository = app?.userPreferencesRepository
     val authViewModel: AuthViewModel? = authRepository?.let {
         viewModel(factory = AuthViewModelFactory(it))
     }
     val isLoggedIn by (authViewModel?.isLoggedIn?.collectAsState() ?: remember { mutableStateOf(false) })
-    val isOnboardingCompleted by (userPreferencesRepository?.isOnboardingCompleted?.collectAsState(initial = true) ?: remember { mutableStateOf(true) })
 
-    val startDestination = when {
-        isLoggedIn -> Routes.DASHBOARD
-        !isOnboardingCompleted -> Routes.ONBOARDING
-        else -> Routes.LOGIN
-    }
+    val startDestination = Routes.SPLASH
 
     LaunchedEffect(isLoggedIn, currentRoute) {
         if (!isLoggedIn &&
@@ -225,96 +229,120 @@ fun MonethraApp() {
 }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavHost(
     navController: NavHostController,
-    startDestination: String = Routes.LOGIN,
+    startDestination: String = Routes.SPLASH,
     onNavigateToDestination: (TopLevelDestination) -> Unit,
     onLogout: () -> Unit = {}
 ) {
-    NavHost(
-        navController = navController,
-        startDestination = startDestination,
-        modifier = Modifier.fillMaxSize()
-    ) {
-        composable(Routes.SPLASH) {
-            SplashScreen(
-                onNavigateToOnboarding = {
-                    navController.navigate(Routes.ONBOARDING) {
-                        popUpTo(Routes.SPLASH) { inclusive = true }
-                    }
-                },
-                onNavigateToLogin = {
-                    navController.navigate(Routes.LOGIN) {
-                        popUpTo(Routes.SPLASH) { inclusive = true }
-                    }
-                },
-                onNavigateToMain = {
-                    navController.navigate(Routes.DASHBOARD) {
-                        popUpTo(Routes.SPLASH) { inclusive = true }
-                    }
+    val sessionGradient = remember { MonethraPastelPalette.getRandomThreeColorGradient() }
+
+    SharedTransitionLayout {
+        NavHost(
+            navController = navController,
+            startDestination = startDestination,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            composable(
+                route = Routes.SPLASH,
+                exitTransition = {
+                    fadeOut(animationSpec = tween(300))
                 }
-            )
-        }
-        composable(Routes.ONBOARDING) {
-            OnboardingScreen(
-                onFinishOnboarding = {
-                    navController.navigate(Routes.LOGIN) {
-                        popUpTo(Routes.ONBOARDING) { inclusive = true }
-                    }
-                }
-            )
-        }
-        composable(Routes.LOGIN) {
-            val context = LocalContext.current
-            val app = context.applicationContext as? MonethraApplication
-            val authRepository = app?.authRepository
-            if (authRepository != null) {
-                val authViewModel: AuthViewModel = viewModel(
-                    factory = AuthViewModelFactory(authRepository)
-                )
-                LoginScreen(
-                    viewModel = authViewModel,
-                    onLoginSuccess = {
-                        try {
-                            navController.navigate(Routes.DASHBOARD) {
-                                popUpTo(Routes.LOGIN) { inclusive = true }
-                            }
-                        } catch (e: Exception) {
-                            navController.navigate(Routes.DASHBOARD) {
-                                popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
-                            }
-                        }
-                    },
-                    onNavigateToSignUp = {
-                        navController.navigate(Routes.SIGNUP)
-                    }
-                )
-            }
-        }
-        composable(Routes.SIGNUP) {
-            val context = LocalContext.current
-            val app = context.applicationContext as? MonethraApplication
-            val authRepository = app?.authRepository
-            if (authRepository != null) {
-                val authViewModel: AuthViewModel = viewModel(
-                    factory = AuthViewModelFactory(authRepository)
-                )
-                SignUpScreen(
-                    viewModel = authViewModel,
-                    onSignUpSuccess = {
-                        navController.navigate(Routes.DASHBOARD) {
-                            popUpTo(Routes.SIGNUP) { inclusive = true }
+            ) {
+                SplashScreen(
+                    backgroundBrush = sessionGradient,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@composable,
+                    onNavigateToOnboarding = {
+                        navController.navigate(Routes.ONBOARDING) {
+                            popUpTo(Routes.SPLASH) { inclusive = true }
                         }
                     },
                     onNavigateToLogin = {
                         navController.navigate(Routes.LOGIN) {
-                            popUpTo(Routes.SIGNUP) { inclusive = true }
+                            popUpTo(Routes.SPLASH) { inclusive = true }
+                        }
+                    },
+                    onNavigateToMain = {
+                        navController.navigate(Routes.DASHBOARD) {
+                            popUpTo(Routes.SPLASH) { inclusive = true }
                         }
                     }
                 )
             }
-        }
+            composable(Routes.ONBOARDING) {
+                OnboardingScreen(
+                    onFinishOnboarding = {
+                        navController.navigate(Routes.LOGIN) {
+                            popUpTo(Routes.ONBOARDING) { inclusive = true }
+                        }
+                    }
+                )
+            }
+            composable(
+                route = Routes.LOGIN,
+                enterTransition = {
+                    fadeIn(animationSpec = tween(550, delayMillis = 150)) +
+                        slideInVertically(
+                            initialOffsetY = { it / 10 },
+                            animationSpec = tween(550, delayMillis = 150, easing = FastOutSlowInEasing)
+                        )
+                }
+            ) {
+                val context = LocalContext.current
+                val app = context.applicationContext as? MonethraApplication
+                val authRepository = app?.authRepository
+                if (authRepository != null) {
+                    val authViewModel: AuthViewModel = viewModel(
+                        factory = AuthViewModelFactory(authRepository)
+                    )
+                    LoginScreen(
+                        viewModel = authViewModel,
+                        backgroundBrush = sessionGradient,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@composable,
+                        onLoginSuccess = {
+                            try {
+                                navController.navigate(Routes.DASHBOARD) {
+                                    popUpTo(Routes.LOGIN) { inclusive = true }
+                                }
+                            } catch (_: Exception) {
+                                navController.navigate(Routes.DASHBOARD) {
+                                    popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+                                }
+                            }
+                        },
+                        onNavigateToSignUp = {
+                            navController.navigate(Routes.SIGNUP)
+                        }
+                    )
+                }
+            }
+            composable(Routes.SIGNUP) {
+                val context = LocalContext.current
+                val app = context.applicationContext as? MonethraApplication
+                val authRepository = app?.authRepository
+                if (authRepository != null) {
+                    val authViewModel: AuthViewModel = viewModel(
+                        factory = AuthViewModelFactory(authRepository)
+                    )
+                    SignUpScreen(
+                        viewModel = authViewModel,
+                        onSignUpSuccess = {
+                            navController.navigate(Routes.DASHBOARD) {
+                                popUpTo(Routes.SIGNUP) { inclusive = true }
+                            }
+                        },
+                        onNavigateToLogin = {
+                            navController.navigate(Routes.LOGIN) {
+                                popUpTo(Routes.SIGNUP) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+            }
         composable(Routes.DASHBOARD) {
             DashboardScreen(
                 onSetBudgetClick = { onNavigateToDestination(TopLevelDestination.BUDGET) },
@@ -373,4 +401,5 @@ fun AppNavHost(
             }
         }
     }
+}
 }

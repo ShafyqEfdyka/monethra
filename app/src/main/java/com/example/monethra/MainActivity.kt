@@ -1,12 +1,15 @@
 package com.example.monethra
 
+import android.animation.ObjectAnimator
 import android.os.Bundle
 import android.view.MotionEvent
+import android.view.View
+import android.view.animation.PathInterpolator
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.core.animation.doOnEnd
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -19,7 +22,6 @@ import com.example.monethra.viewmodel.AuthViewModel
 import com.example.monethra.viewmodel.AuthViewModelFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -34,8 +36,27 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
+        splashScreen.setOnExitAnimationListener { splashScreenView ->
+            val view = splashScreenView.view
+            ObjectAnimator.ofFloat(view, View.ALPHA, 1f, 0f).apply {
+                duration = 250L
+                interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+                doOnEnd { splashScreenView.remove() }
+                start()
+            }
+        }
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         val app = application as? MonethraApplication
         val sessionManager = app?.sessionManager
         val authRepo = app?.authRepository
@@ -55,57 +76,48 @@ class MainActivity : FragmentActivity() {
         if (authRepo != null) {
             authViewModel = ViewModelProvider(
                 this,
-                AuthViewModelFactory(authRepo)
+                AuthViewModelFactory(authRepo),
             )[AuthViewModel::class.java]
         }
 
-        lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_STOP -> {
-                    // Moving to background (ignore configuration changes like device rotation)
-                    if (!isChangingConfigurations) {
-                        val repo = (application as? MonethraApplication)?.authRepository
-                        if (repo?.isSessionLoggedIn() == true) {
-                            val now = System.currentTimeMillis()
-                            repo.saveLastActiveTimestamp(now)
-                            (application as? MonethraApplication)?.sessionManager?.saveLastActiveTimestampSync(now)
+        lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_STOP -> {
+                        if (!isChangingConfigurations) {
+                            val repo = (application as? MonethraApplication)?.authRepository
+                            if (repo?.isSessionLoggedIn() == true) {
+                                val now = System.currentTimeMillis()
+                                repo.saveLastActiveTimestamp(now)
+                                (application as? MonethraApplication)?.sessionManager?.saveLastActiveTimestampSync(now)
+                            }
                         }
                     }
-                }
-                Lifecycle.Event.ON_START -> {
-                    // Returning to foreground or cold launch
-                    val repo = (application as? MonethraApplication)?.authRepository
-                    if (repo != null && repo.isSessionLoggedIn()) {
-                        val lastActiveTimestamp = repo.getLastActiveTimestamp()
-                        if (lastActiveTimestamp > 0L) {
-                            val elapsed = System.currentTimeMillis() - lastActiveTimestamp
-                            if (elapsed >= AuthRepository.SESSION_TIMEOUT_MS) {
-                                // Session expired (>= 5 minutes): clear session and navigate to LoginScreen
-                                authViewModel?.logoutDueToTimeout() ?: CoroutineScope(Dispatchers.Main).launch {
-                                    repo.logout()
+                    Lifecycle.Event.ON_START -> {
+                        val repo = (application as? MonethraApplication)?.authRepository
+                        if (repo != null && repo.isSessionLoggedIn()) {
+                            val lastActiveTimestamp = repo.getLastActiveTimestamp()
+                            if (lastActiveTimestamp > 0L) {
+                                val elapsed = System.currentTimeMillis() - lastActiveTimestamp
+                                if (elapsed >= AuthRepository.SESSION_TIMEOUT_MS) {
+                                    authViewModel?.logoutDueToTimeout() ?: CoroutineScope(Dispatchers.Main).launch {
+                                        repo.logout()
+                                    }
+                                } else {
+                                    authViewModel?.onUserInteraction()
                                 }
                             } else {
-                                // Within 5 minutes: keep user logged in and start fresh 5-minute foreground timer
                                 authViewModel?.onUserInteraction()
                             }
-                        } else {
-                            authViewModel?.onUserInteraction()
                         }
                     }
+                    else -> {}
                 }
-                else -> {}
-            }
-        })
+            },
+        )
 
         setContent {
-            val themeFlow = app?.financeRepository?.themePreference ?: flowOf("SYSTEM")
-            val themePreference by themeFlow.collectAsState(initial = "SYSTEM")
-            val darkTheme = when (themePreference) {
-                "LIGHT" -> false
-                "DARK" -> true
-                else -> isSystemInDarkTheme()
-            }
-            MonethraTheme(darkTheme = darkTheme) {
+            MonethraTheme {
                 MonethraApp()
             }
         }
@@ -116,13 +128,6 @@ class MainActivity : FragmentActivity() {
         if (isFinishing) {
             val app = application as? MonethraApplication
             app?.sessionManager?.clearSessionSync()
-            SessionManager.isProcessAlive = false
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    app?.authRepository?.logout()
-                    app?.sessionManager?.clearSession()
-                } catch (_: Exception) {}
-            }
         }
     }
 }

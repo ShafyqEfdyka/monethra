@@ -33,14 +33,12 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AttachMoney
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PictureAsPdf
@@ -49,7 +47,6 @@ import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.SettingsSystemDaydream
 import androidx.compose.material.icons.rounded.Storage
 import com.example.monethra.ui.components.ExportPdfRecapDialog
 import androidx.compose.runtime.mutableIntStateOf
@@ -141,7 +138,6 @@ fun ProfileScreen(
     val isDemoAccount = userEmail.isNotBlank() && userEmail.equals("monthra@andro.app", ignoreCase = true)
     val paydayStartDay = uiState.paydayStartDay.coerceIn(1, 28)
     val selectedCurrency = uiState.currencySymbol.ifBlank { "Rp" }
-    val selectedTheme = uiState.themePreference.ifBlank { "SYSTEM" }
     val snackbarHostState = remember { SnackbarHostState() }
 
     var isAboutDialogOpen by remember { mutableStateOf(false) }
@@ -220,12 +216,10 @@ fun ProfileScreen(
                     // Preferences Section
                     PreferencesSection(
                         currencySymbol = selectedCurrency,
-                        themePreference = selectedTheme,
                         notificationsEnabled = uiState.notificationsEnabled,
                         paydayStartDay = paydayStartDay,
                         onCurrencyClick = { viewModel.openCurrencyDialog() },
                         onPaydayStartDayClick = { viewModel.openPaydayStartDayDialog() },
-                        onThemeSelect = { theme -> viewModel.updateTheme(theme) },
                         onNotificationsToggle = { enabled -> viewModel.updateNotificationSettings(enabled) }
                     )
 
@@ -486,12 +480,10 @@ fun UserProfileCard(
 @Composable
 fun PreferencesSection(
     currencySymbol: String,
-    themePreference: String,
     notificationsEnabled: Boolean,
     paydayStartDay: Int,
     onCurrencyClick: () -> Unit,
     onPaydayStartDayClick: () -> Unit,
-    onThemeSelect: (String) -> Unit,
     onNotificationsToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -574,69 +566,6 @@ fun PreferencesSection(
                 },
                 onClick = onPaydayStartDayClick
             )
-
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 10.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
-
-            // Theme Preference Row
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.LightMode,
-                        contentDescription = null,
-                        tint = SecondaryText,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Theme Preference",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = PrimaryText
-                        )
-                        Text(
-                            text = "Choose application visual theme",
-                            fontSize = 12.sp,
-                            color = SecondaryText
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ThemeOptionChip(
-                        label = "Light",
-                        icon = Icons.Rounded.LightMode,
-                        selected = themePreference == "LIGHT",
-                        onClick = { onThemeSelect("LIGHT") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThemeOptionChip(
-                        label = "Dark",
-                        icon = Icons.Rounded.DarkMode,
-                        selected = themePreference == "DARK",
-                        onClick = { onThemeSelect("DARK") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ThemeOptionChip(
-                        label = "System",
-                        icon = Icons.Rounded.SettingsSystemDaydream,
-                        selected = themePreference == "SYSTEM",
-                        onClick = { onThemeSelect("SYSTEM") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
 
             HorizontalDivider(
                 modifier = Modifier.padding(vertical = 10.dp),
@@ -895,43 +824,6 @@ fun SettingsRowItem(
         if (trailing != null) {
             Spacer(modifier = Modifier.width(8.dp))
             trailing()
-        }
-    }
-}
-
-@Composable
-fun ThemeOptionChip(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val bgColor = if (selected) MaterialTheme.colorScheme.primaryContainer else WarmIvory
-    val contentColor = if (selected) PrimaryText else SecondaryText
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(bgColor)
-            .clickable { onClick() }
-            .padding(vertical = 8.dp, horizontal = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                modifier = Modifier.size(16.dp),
-                tint = contentColor
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = contentColor
-            )
         }
     }
 }

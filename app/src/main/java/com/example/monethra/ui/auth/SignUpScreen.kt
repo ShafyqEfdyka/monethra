@@ -3,6 +3,7 @@ package com.example.monethra.ui.auth
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,7 +14,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -23,8 +23,6 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.ui.res.painterResource
-import com.example.monethra.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -32,18 +30,21 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,10 +54,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.monethra.R
+import com.example.monethra.ui.theme.DeepIndigo
 import com.example.monethra.ui.theme.ExpenseRed
+import com.example.monethra.ui.theme.MonethraPastelPalette
 import com.example.monethra.ui.theme.MonethraTheme
-import com.example.monethra.ui.theme.PrimaryText
-import com.example.monethra.ui.theme.SecondaryText
+import com.example.monethra.ui.theme.PastelPeriwinkle
 import com.example.monethra.viewmodel.AuthViewModel
 import com.example.monethra.viewmodel.SignUpUiState
 
@@ -96,247 +99,287 @@ fun SignUpContent(
     onNavigateToLogin: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val displayError = state.errorMessage ?: state.generalError
+    val backgroundBrush = remember { MonethraPastelPalette.getRandomThreeColorGradient() }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(brush = backgroundBrush)
                 .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .imePadding(),
+            contentAlignment = Alignment.Center
         ) {
-            // Header Logo
-            Image(
-                painter = painterResource(id = R.drawable.app_logo),
-                contentDescription = "MONETHRA Logo",
-                modifier = Modifier.size(90.dp)
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Header Logo
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = "MONETHRA Logo",
+                    modifier = Modifier.size(80.dp)
+                )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
                     text = "Create Account",
-                    fontSize = 26.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PrimaryText
+                    color = DeepIndigo,
+                    letterSpacing = 0.5.sp
                 )
 
                 Text(
-                    text = "Join MONETHRA and start managing your finances",
+                    text = "Start managing your finances today",
                     fontSize = 14.sp,
-                    color = SecondaryText,
+                    color = Color(0xFF4B5563),
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
                 )
 
-                // General Error Banner
-                if (!state.generalError.isNullOrBlank()) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = ExpenseRed.copy(alpha = 0.12f)
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = state.generalError,
-                            color = ExpenseRed,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(12.dp)
-                        )
-                    }
-                }
-
-                // Full Name Input
-                OutlinedTextField(
-                    value = state.fullName,
-                    onValueChange = onFullNameChanged,
-                    label = { Text("Full Name") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Person,
-                            contentDescription = "Person Icon"
-                        )
-                    },
-                    isError = state.fullNameError != null,
-                    supportingText = state.fullNameError?.let { { Text(it, color = ExpenseRed) } },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
-                        imeAction = ImeAction.Next
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Email Input
-                OutlinedTextField(
-                    value = state.email,
-                    onValueChange = onEmailChanged,
-                    label = { Text("Email Address") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Email,
-                            contentDescription = "Email Icon"
-                        )
-                    },
-                    isError = state.emailError != null,
-                    supportingText = state.emailError?.let { { Text(it, color = ExpenseRed) } },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Email,
-                        imeAction = ImeAction.Next
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Password Input
-                OutlinedTextField(
-                    value = state.password,
-                    onValueChange = onPasswordChanged,
-                    label = { Text("Password (min. 6 characters)") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Lock,
-                            contentDescription = "Password Icon"
-                        )
-                    },
-                    trailingIcon = {
-                        IconButton(onClick = onTogglePasswordVisibility) {
-                            Icon(
-                                imageVector = if (state.isPasswordVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-                                contentDescription = if (state.isPasswordVisible) "Hide password" else "Show password"
-                            )
-                        }
-                    },
-                    visualTransformation = if (state.isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    isError = state.passwordError != null,
-                    supportingText = state.passwordError?.let { { Text(it, color = ExpenseRed) } },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Next
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Confirm Password Input
-                OutlinedTextField(
-                    value = state.confirmPassword,
-                    onValueChange = onConfirmPasswordChanged,
-                    label = { Text("Confirm Password") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Lock,
-                            contentDescription = "Confirm Password Icon"
-                        )
-                    },
-                    trailingIcon = {
-                        IconButton(onClick = onToggleConfirmPasswordVisibility) {
-                            Icon(
-                                imageVector = if (state.isConfirmPasswordVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-                                contentDescription = if (state.isConfirmPasswordVisible) "Hide password" else "Show password"
-                            )
-                        }
-                    },
-                    visualTransformation = if (state.isConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    isError = state.confirmPasswordError != null,
-                    supportingText = state.confirmPasswordError?.let { { Text(it, color = ExpenseRed) } },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Sign Up Button
-                Button(
-                    onClick = onSignUpClick,
-                    enabled = !state.isLoading,
+                // Elevated Semi-Translucent Card Container
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(26.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF2563EB),
-                        contentColor = Color.White
-                    )
+                        .shadow(
+                            elevation = 12.dp,
+                            shape = RoundedCornerShape(24.dp),
+                            ambientColor = DeepIndigo.copy(alpha = 0.15f),
+                            spotColor = DeepIndigo.copy(alpha = 0.2f)
+                        ),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White.copy(alpha = 0.94f)
                 ) {
-                    if (state.isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            color = Color.White,
-                            strokeWidth = 2.5.dp
-                        )
-                    } else {
-                        Text(
-                            text = "Sign Up",
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp
-                        )
-                    }
-                }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Error message
+                        if (!displayError.isNullOrBlank()) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFDE8E8)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = displayError,
+                                    color = ExpenseRed,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Link to Login
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "Already have an account?",
-                        fontSize = 14.sp,
-                        color = SecondaryText
-                    )
-                    TextButton(onClick = onNavigateToLogin) {
-                        Text(
-                            text = "Log In",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1D4ED8)
+                        // Full Name
+                        OutlinedTextField(
+                            value = state.fullName,
+                            onValueChange = onFullNameChanged,
+                            label = { Text("Full Name", color = DeepIndigo) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Person,
+                                    contentDescription = "Person Icon",
+                                    tint = DeepIndigo
+                                )
+                            },
+                            isError = state.fullNameError != null,
+                            supportingText = state.fullNameError?.let { { Text(it, color = ExpenseRed) } },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PastelPeriwinkle,
+                                unfocusedBorderColor = Color(0xFFD1D5DB),
+                                focusedTextColor = DeepIndigo,
+                                unfocusedTextColor = DeepIndigo
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Email
+                        OutlinedTextField(
+                            value = state.email,
+                            onValueChange = onEmailChanged,
+                            label = { Text("Email Address", color = DeepIndigo) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Email,
+                                    contentDescription = "Email Icon",
+                                    tint = DeepIndigo
+                                )
+                            },
+                            isError = state.emailError != null,
+                            supportingText = state.emailError?.let { { Text(it, color = ExpenseRed) } },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Next
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PastelPeriwinkle,
+                                unfocusedBorderColor = Color(0xFFD1D5DB),
+                                focusedTextColor = DeepIndigo,
+                                unfocusedTextColor = DeepIndigo
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Password
+                        OutlinedTextField(
+                            value = state.password,
+                            onValueChange = onPasswordChanged,
+                            label = { Text("Password", color = DeepIndigo) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Lock,
+                                    contentDescription = "Password Icon",
+                                    tint = DeepIndigo
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = onTogglePasswordVisibility) {
+                                    Icon(
+                                        imageVector = if (state.isPasswordVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                        contentDescription = if (state.isPasswordVisible) "Hide password" else "Show password",
+                                        tint = DeepIndigo
+                                    )
+                                }
+                            },
+                            visualTransformation = if (state.isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            isError = state.passwordError != null,
+                            supportingText = state.passwordError?.let { { Text(it, color = ExpenseRed) } },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Next
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PastelPeriwinkle,
+                                unfocusedBorderColor = Color(0xFFD1D5DB),
+                                focusedTextColor = DeepIndigo,
+                                unfocusedTextColor = DeepIndigo
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Confirm Password
+                        OutlinedTextField(
+                            value = state.confirmPassword,
+                            onValueChange = onConfirmPasswordChanged,
+                            label = { Text("Confirm Password", color = DeepIndigo) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.Lock,
+                                    contentDescription = "Confirm Password Icon",
+                                    tint = DeepIndigo
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = onToggleConfirmPasswordVisibility) {
+                                    Icon(
+                                        imageVector = if (state.isConfirmPasswordVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                                        contentDescription = if (state.isConfirmPasswordVisible) "Hide password" else "Show password",
+                                        tint = DeepIndigo
+                                    )
+                                }
+                            },
+                            visualTransformation = if (state.isConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            isError = state.confirmPasswordError != null,
+                            supportingText = state.confirmPasswordError?.let { { Text(it, color = ExpenseRed) } },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Password,
+                                imeAction = ImeAction.Done
+                            ),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PastelPeriwinkle,
+                                unfocusedBorderColor = Color(0xFFD1D5DB),
+                                focusedTextColor = DeepIndigo,
+                                unfocusedTextColor = DeepIndigo
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        // High-Contrast CTA Button
+                        Button(
+                            onClick = onSignUpClick,
+                            enabled = !state.isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            shape = RoundedCornerShape(26.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = DeepIndigo,
+                                contentColor = Color.White
+                            )
+                        ) {
+                            if (state.isLoading) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "Sign Up",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Link to Login
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "Already have an account?",
+                                fontSize = 14.sp,
+                                color = Color(0xFF6B7280)
+                            )
+                            TextButton(onClick = onNavigateToLogin) {
+                                Text(
+                                    text = "Log In",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DeepIndigo
+                                )
+                            }
+                        }
                     }
                 }
             }
+        }
     }
 }
 
@@ -345,7 +388,7 @@ fun SignUpContent(
 fun SignUpScreenPreview() {
     MonethraTheme {
         SignUpContent(
-            state = SignUpUiState(fullName = "Jane Doe", email = "jane@example.com"),
+            state = SignUpUiState(),
             onFullNameChanged = {},
             onEmailChanged = {},
             onPasswordChanged = {},
